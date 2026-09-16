@@ -1,17 +1,28 @@
 name: Monitoreo Menciones Sodre
 
 on:
+  # Se ejecuta automáticamente todos los días a las 09:00 y 21:00 (hora Uruguay)
   schedule:
-    # Se ejecuta todos los días a las 12:00 UTC (09:00 UY) y a las 00:00 UTC (21:00 UY)
-    - cron: '0 0,12 * * *'
-  workflow_dispatch: # Permite ejecutarlo manualmente con un botón cuando quieras
+    - cron: '0 12,0 * * *'
+  # Permite ejecución manual eligiendo qué año o script correr
+  workflow_dispatch:
+    inputs:
+      script_a_ejecutar:
+        description: 'Selecciona la tarea a ejecutar:'
+        required: true
+        default: 'Monitoreo diario 2026 (main.py)'
+        type: choice
+        options:
+          - 'Monitoreo diario 2026 (main.py)'
+          - 'Historico 2025 (historico_2025.py)'
+          - 'Historico 2026 completo (historico_2026.py)'
+
+permissions:
+  contents: write
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Permite guardar el archivo CSV actualizado en el repositorio
-
     steps:
       - name: Clonar repositorio
         uses: actions/checkout@v4
@@ -20,22 +31,35 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Instalar dependencias
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Ejecutar colector y análisis con Gemini
+      - name: Ejecutar script seleccionado
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python historico_2026.py
+          if [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2025 (historico_2025.py)" ]; then
+            echo "Ejecutando recopilación histórica 2025..."
+            python historico_2025.py
+          elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2026 completo (historico_2026.py)" ]; then
+            echo "Ejecutando recopilación histórica 2026..."
+            python historico_2026.py
+          else
+            echo "Ejecutando monitoreo diario en curso (main.py)..."
+            python main.py
+          fi
 
       - name: Guardar cambios en el repositorio
         run: |
-          git config --global user.name "Sodre Monitor Bot"
+          git config --global user.name "actions-user"
           git config --global user.email "actions@github.com"
-          git add data/menciones_sodre_2026.csv
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: actualización automática menciones [skip ci]" && git push)
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No hay menciones nuevas para guardar."
+          else
+            git commit -m "chore: actualización automática menciones [skip ci]"
+            git push origin main
+          fi
