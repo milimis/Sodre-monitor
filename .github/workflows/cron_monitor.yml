@@ -4,7 +4,7 @@ on:
   # Se ejecuta automáticamente todos los días a las 09:00 y 21:00 (hora Uruguay)
   schedule:
     - cron: '0 12,0 * * *'
-  # Permite ejecución manual eligiendo qué año o script correr
+  # Permite ejecución manual eligiendo qué tarea correr
   workflow_dispatch:
     inputs:
       script_a_ejecutar:
@@ -14,6 +14,7 @@ on:
         type: choice
         options:
           - 'Monitoreo diario 2026 (main.py)'
+          - 'Scraper Web Sodre 2025 (scraper_sodre_web_2025.py)'
           - 'Historico 2025 (historico_2025.py)'
           - 'Historico 2026 completo (historico_2026.py)'
 
@@ -41,7 +42,10 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          if [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2025 (historico_2025.py)" ]; then
+          if [ "${{ github.event.inputs.script_a_ejecutar }}" = "Scraper Web Sodre 2025 (scraper_sodre_web_2025.py)" ]; then
+            echo "Extrayendo directamente de sodre.gub.uy/prensa 2025..."
+            python scraper_sodre_web_2025.py
+          elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2025 (historico_2025.py)" ]; then
             echo "Ejecutando recopilación histórica 2025..."
             python historico_2025.py
           elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2026 completo (historico_2026.py)" ]; then
