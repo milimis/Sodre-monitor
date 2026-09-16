@@ -31,7 +31,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python main.py
+          python historico_2026.py
 
       - name: Guardar cambios en el repositorio
         run: |
