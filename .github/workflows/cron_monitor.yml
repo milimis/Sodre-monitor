@@ -33,7 +33,7 @@ jobs:
       - name: Instalar dependencias
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pandas openpyxl feedparser requests beautifulsoup4 pydantic python-dateutil google-genai
 
       - name: Ejecutar script seleccionado
         env:
