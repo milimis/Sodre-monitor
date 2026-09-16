@@ -206,7 +206,8 @@ def clasificar_con_gemini(client: genai.Client, titulo: str, texto: str) -> Opti
 def main():
     os.makedirs("data", exist_ok=True)
     enlaces_previos = obtener_enlaces_existentes()
-    client = genai.Client()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
     nuevas_filas = []
 
     columnas = [
