@@ -17,6 +17,7 @@ on:
           - 'Scraper Web Sodre 2025 (scraper_sodre_web_2025.py)'
           - 'Historico 2025 (historico_2025.py)'
           - 'Historico 2026 completo (historico_2026.py)'
+          - 'Procesar Excel 2025 (procesar_excel_2025.py)'
 
 permissions:
   contents: write
@@ -66,4 +67,7 @@ jobs:
           else
             git commit -m "chore: actualización automática menciones [skip ci]"
             git push origin main
+            elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Procesar Excel 2025 (procesar_excel_2025.py)" ]; then
+          echo "Procesando Excel oficial 2025..."
+          python procesar_excel_2025.py
           fi
