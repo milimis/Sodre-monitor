@@ -1,23 +1,19 @@
 name: Monitoreo Menciones Sodre
 
 on:
-  # Se ejecuta automáticamente todos los días a las 09:00 y 21:00 (hora Uruguay)
   schedule:
     - cron: '0 12,0 * * *'
-  # Permite ejecución manual eligiendo qué tarea correr
   workflow_dispatch:
     inputs:
       script_a_ejecutar:
         description: 'Selecciona la tarea a ejecutar:'
         required: true
-        default: 'Monitoreo diario 2026 (main.py)'
+        default: 'monitoreo_diario'
         type: choice
         options:
-          - 'Monitoreo diario 2026 (main.py)'
-          - 'Scraper Web Sodre 2025 (scraper_sodre_web_2025.py)'
-          - 'Historico 2025 (historico_2025.py)'
-          - 'Historico 2026 completo (historico_2026.py)'
-          - 'Procesar Excel 2025 (procesar_excel_2025.py)'
+          - 'monitoreo_diario'
+          - 'procesar_excel_2025'
+          - 'historico_2026'
 
 permissions:
   contents: write
@@ -42,18 +38,16 @@ jobs:
       - name: Ejecutar script seleccionado
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TAREA: ${{ github.event.inputs.script_a_ejecutar }}
         run: |
-          if [ "${{ github.event.inputs.script_a_ejecutar }}" = "Scraper Web Sodre 2025 (scraper_sodre_web_2025.py)" ]; then
-            echo "Extrayendo directamente de sodre.gub.uy/prensa 2025..."
-            python scraper_sodre_web_2025.py
-          elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2025 (historico_2025.py)" ]; then
-            echo "Ejecutando recopilación histórica 2025..."
-            python historico_2025.py
-          elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Historico 2026 completo (historico_2026.py)" ]; then
-            echo "Ejecutando recopilación histórica 2026..."
+          if [ "$TAREA" = "procesar_excel_2025" ]; then
+            echo "Procesando Excel de 2025..."
+            python procesar_excel_2025.py
+          elif [ "$TAREA" = "historico_2026" ]; then
+            echo "Recuperando historico 2026..."
             python historico_2026.py
           else
-            echo "Ejecutando monitoreo diario en curso (main.py)..."
+            echo "Ejecutando monitoreo diario..."
             python main.py
           fi
 
@@ -65,9 +59,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No hay menciones nuevas para guardar."
           else
-            git commit -m "chore: actualización automática menciones [skip ci]"
+            git commit -m "chore: actualizacion automatica menciones [skip ci]"
             git push origin main
-            elif [ "${{ github.event.inputs.script_a_ejecutar }}" = "Procesar Excel 2025 (procesar_excel_2025.py)" ]; then
-          echo "Procesando Excel oficial 2025..."
-          python procesar_excel_2025.py
           fi
