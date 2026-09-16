@@ -184,7 +184,9 @@ def obtener_enlaces_existentes():
         return {fila.get("enlace", "") for fila in reader}
 
 def clasificar_con_gemini(client: genai.Client, titulo: str, texto: str) -> Optional[AnalisisMencionSodre]:
-    prompt = f"Analiza esta noticia cultural sobre el Sodre en Uruguay:\nTítulo: {titulo}\nTexto: {texto}"
+    # Limpiar etiquetas HTML del texto para que no confundan al modelo
+    texto_limpio = re.sub(r'<[^>]+>', ' ', texto)
+    prompt = f"Analiza esta noticia cultural sobre el Sodre en Uruguay:\nTítulo: {titulo}\nTexto: {texto_limpio}"
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -197,7 +199,7 @@ def clasificar_con_gemini(client: genai.Client, titulo: str, texto: str) -> Opti
         )
         return AnalisisMencionSodre.model_validate_json(response.text)
     except Exception as e:
-        print(f"Error al analizar con Gemini: {e}")
+        print(f"Error al analizar con Gemini: {repr(e)}")
         return None
 
 # ==========================================
