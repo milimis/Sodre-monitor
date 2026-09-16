@@ -1,0 +1,41 @@
+name: Monitoreo Menciones Sodre
+
+on:
+  schedule:
+    # Se ejecuta todos los días a las 12:00 UTC (09:00 UY) y a las 00:00 UTC (21:00 UY)
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # Permite ejecutarlo manualmente con un botón cuando quieras
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Permite guardar el archivo CSV actualizado en el repositorio
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar colector y análisis con Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python main.py
+
+      - name: Guardar cambios en el repositorio
+        run: |
+          git config --global user.name "Sodre Monitor Bot"
+          git config --global user.email "actions@github.com"
+          git add data/menciones_sodre_2026.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: actualización automática menciones [skip ci]" && git push)
