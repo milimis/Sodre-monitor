@@ -2,7 +2,6 @@ import csv
 import os
 import re
 import time
-from datetime import datetime
 from typing import Literal, Optional
 import requests
 from bs4 import BeautifulSoup
@@ -42,10 +41,10 @@ def obtener_enlaces_existentes():
         return set()
     with open(CSV_PATH, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        return {fila.get("enlace", "") for fila in reader}
+        return {fila.get("enlace", "") for fila in reader if fila.get("enlace")}
 
-def clasificar_con_gemini(client: genai.Client, titulo: str, texto: str) -> Optional[AnalisisMencionSodre]:
-    prompt = f"Analiza esta mención de prensa oficial sobre el Sodre Uruguay:\nTítulo: {titulo}\nContexto: {texto}"
+def clasificar_con_gemini(client: genai.Client, titulo: str, contexto: str) -> Optional[AnalisisMencionSodre]:
+    prompt = f"Analiza esta mención de prensa oficial sobre el Sodre Uruguay:\nTítulo: {titulo}\nContexto: {contexto}"
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -69,7 +68,7 @@ def main():
     client = genai.Client(api_key=api_key)
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
     columnas = [
@@ -81,91 +80,101 @@ def main():
     escribir_cabecera = not os.path.exists(CSV_PATH) or os.path.getsize(CSV_PATH) == 0
     nuevas_filas = []
 
-    print("Iniciando extracción desde sodre.gub.uy/prensa/...")
+    print("Iniciando rastreo de páginas en sodre.gub.uy/prensa/...")
 
-    # Recorremos desde la página 1 hasta la 35 para cubrir todo el archivo
-    for pg in range(1, 40):
-        url = f"https://sodre.gub.uy/prensa/?pg={pg}" if pg > 1 else "https://sodre.gub.uy/prensa/"
-        print(f"\n--- Explorando página {pg}: {url} ---")
+    # Recorrer páginas estándar de WordPress /prensa/ o /prensa/page/N/
+    for page in range(1, 45):
+        url = "https://sodre.gub.uy/prensa/" if page == 1 else f"https://sodre.gub.uy/prensa/page/{page}/"
+        print(f"\nConsultando: {url}")
         
         try:
             r = requests.get(url, headers=headers, timeout=20)
-            if r.status_code != 200:
-                print(f"Página {pg} no disponible o fin del listado (Status {r.status_code}).")
+            if r.status_code == 404:
+                print("Llegamos al final del catálogo de prensa.")
                 break
+            if r.status_code != 200:
+                print(f"Código HTTP {r.status_code}, reintentando...")
+                continue
 
             soup = BeautifulSoup(r.text, "html.parser")
-            articulos = soup.find_all(["article", "div"], class_=lambda c: c and any(x in c for x in ["item-prensa", "noticia", "card", "post"]))
             
-            if not articulos:
-                articulos = soup.select("main a, .content a, article a")
+            # Buscar todos los textos con fechas en formato dd/mm/yyyy
+            fechas_tags = soup.find_all(string=re.compile(r'\b\d{2}/\d{2}/(2025|2024)\b'))
+            
+            encontradas_en_pagina = 0
+            for tag in fechas_tags:
+                fecha_match = re.search(r'(\d{2}/\d{2}/2025)', str(tag))
+                if not fecha_match:
+                    continue  # Si es 2024 o 2026, lo salteamos
 
-            encontrados_en_pagina = 0
-
-            # Buscar bloques de noticias
-            items = soup.find_all(text=re.compile(r'\d{2}/\d{2}/2025'))
-            if not items and pg > 15:
-                # Si ya pasamos muchas páginas y no hay 2025, podemos haber llegado a 2024
-                pass
-
-            # Parseo general de links y textos con formato DD/MM/2025
-            for a_tag in soup.find_all("a", href=True):
-                href = a_tag["href"]
-                texto_completo = a_tag.get_text(separator=" ", strip=True)
+                fecha_str = fecha_match.group(1)
                 
-                # Buscar fecha 2025
-                match_fecha = re.search(r'(\d{2}/\d{2}/2025)', texto_completo)
-                if not match_fecha:
-                    # Buscar en el padre
-                    padre = a_tag.parent
-                    if padre:
-                        match_fecha = re.search(r'(\d{2}/\d{2}/2025)', padre.get_text())
+                # Obtener el contenedor padre de la noticia
+                contenedor = tag.find_parent(["article", "div", "li", "tr"])
+                if not contenedor:
+                    continue
 
-                if match_fecha and "sodre.gub.uy/prensa/" in href:
-                    if href in enlaces_previos:
-                        continue
+                # Extraer título y enlace
+                enlace_tag = contenedor.find("a", href=True)
+                enlace = enlace_tag["href"] if enlace_tag else ""
+                
+                # Si ya fue procesado, no repetir
+                if enlace and enlace in enlaces_previos:
+                    continue
 
-                    fecha_str = match_fecha.group(1)
-                    titulo = a_tag.get_text(strip=True)
-                    if len(titulo) < 15:
-                        continue
+                titulo = ""
+                # Priorizar el texto del enlace o encabezado H2/H3/H4
+                h_tag = contenedor.find(["h2", "h3", "h4", "h5", "a"])
+                if h_tag:
+                    titulo = h_tag.get_text(strip=True)
+                if not titulo or len(titulo) < 10:
+                    titulo = contenedor.get_text(" ", strip=True)
+                    # Quitar la fecha del texto del título
+                    titulo = titulo.replace(fecha_str, "").strip()
 
-                    # Extraer medio o etiquetas si existen en el contenedor
-                    medio = "Prensa Relevada Sodre"
-                    padre_text = a_tag.parent.get_text(" ", strip=True) if a_tag.parent else ""
-                    
-                    print(f"  [2025] Encontrada ({fecha_str}): {titulo[:60]}...")
-                    analisis = clasificar_con_gemini(client, titulo, padre_text)
+                if len(titulo) < 10:
+                    continue
 
-                    # Formatear fecha a YYYY-MM-DD
-                    try:
-                        d, m, y = fecha_str.split("/")
-                        fecha_fmt = f"{y}-{m}-{d} 12:00"
-                    except:
-                        fecha_fmt = fecha_str
+                # Intentar detectar el medio
+                medio = "Prensa Relevada Sodre"
+                texto_bloque = contenedor.get_text(" ", strip=True)
+                for posible_medio in ["El País", "El Observador", "la diaria", "Búsqueda", "Montevideo Portal", "Uypress", "VTV", "Canal 5", "Canal 10", "Telemundo", "Subrayado", "Radio Sarandí", "Radio Uruguay", "En Perspectiva"]:
+                    if posible_medio.lower() in texto_bloque.lower():
+                        medio = posible_medio
+                        break
 
-                    fila = {
-                        "fecha": fecha_fmt,
-                        "medio": medio,
-                        "titulo": titulo,
-                        "enlace": href,
-                        "nivel_coincidencia": "Relevamiento Oficial Sodre Web",
-                        "elenco_o_cuerpo": analisis.elenco_o_cuerpo if analisis else "No analizado",
-                        "sentimiento": analisis.sentimiento if analisis else "No analizado",
-                        "tema_principal": analisis.tema_principal if analisis else "No analizado",
-                        "obra_mencionada": analisis.obra_mencionada if (analisis and analisis.obra_mencionada) else "-",
-                        "resumen_gemini": (analisis.resumen_ejecutivo if analisis else titulo).replace("\n", " "),
-                        "keywords_detectadas": "sodre.gub.uy/prensa"
-                    }
-                    nuevas_filas.append(fila)
-                    enlaces_previos.add(href)
-                    encontrados_en_pagina += 1
+                print(f"  -> Nota 2025: [{fecha_str}] [{medio}] {titulo[:50]}...")
+                analisis = clasificar_con_gemini(client, titulo, texto_bloque)
 
-            print(f"Página {pg}: {encontrados_en_pagina} notas de 2025 recuperadas.")
-            time.sleep(1)
+                try:
+                    d, m, y = fecha_str.split("/")
+                    fecha_fmt = f"{y}-{m}-{d} 12:00"
+                except:
+                    fecha_fmt = fecha_str
+
+                fila = {
+                    "fecha": fecha_fmt,
+                    "medio": medio,
+                    "titulo": titulo.replace("\n", " ").strip(),
+                    "enlace": enlace if enlace else f"https://sodre.gub.uy/prensa/#2025-{len(nuevas_filas)}",
+                    "nivel_coincidencia": "Relevamiento Sodre Prensa Oficial",
+                    "elenco_o_cuerpo": analisis.elenco_o_cuerpo if analisis else "No analizado",
+                    "sentimiento": analisis.sentimiento if analisis else "No analizado",
+                    "tema_principal": analisis.tema_principal if analisis else "No analizado",
+                    "obra_mencionada": analisis.obra_mencionada if (analisis and analisis.obra_mencionada) else "-",
+                    "resumen_gemini": (analisis.resumen_ejecutivo if analisis else titulo).replace("\n", " "),
+                    "keywords_detectadas": "sodre.gub.uy/prensa 2025"
+                }
+                nuevas_filas.append(fila)
+                if enlace:
+                    enlaces_previos.add(enlace)
+                encontradas_en_pagina += 1
+
+            print(f"Página {page}: {encontradas_en_pagina} notas de 2025 procesadas.")
+            time.sleep(0.5)
 
         except Exception as e:
-            print(f"Error procesando página {pg}: {e}")
+            print(f"Error procesando página {page}: {e}")
 
     if nuevas_filas:
         with open(CSV_PATH, mode="a", newline="", encoding="utf-8") as f:
@@ -174,9 +183,9 @@ def main():
                 writer.writeheader()
             for r in nuevas_filas:
                 writer.writerow(r)
-        print(f"\n¡Total recuperado de la web del Sodre para 2025: {len(nuevas_filas)} noticias!")
+        print(f"\n¡Éxito! Se añadieron {len(nuevas_filas)} menciones oficiales de 2025 a {CSV_PATH}.")
     else:
-        print("\nNo se pudieron extraer notas nuevas.")
+        print("\nNo se detectaron nuevas notas de 2025.")
 
 if __name__ == "__main__":
     main()
