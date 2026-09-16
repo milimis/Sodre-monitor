@@ -12,10 +12,16 @@ from pydantic import BaseModel, Field
 CSV_PATH = "data/menciones_sodre_2026.csv"
 ANO_OBJETIVO = 2026
 
-# Modelo de datos estructurado para Gemini
+# ==========================================
+# 1. ESQUEMA ESTRUCTURADO PARA GEMINI
+# ==========================================
 class AnalisisMencionSodre(BaseModel):
-    resumen_ejecutivo: str = Field(description="Resumen conciso (1-2 oraciones) de la mención.")
-    sentimiento: Literal["positivo", "neutro", "negativo"] = Field(description="Sentimiento general.")
+    resumen_ejecutivo: str = Field(
+        description="Resumen conciso (1-2 oraciones) de la mención sobre el Sodre o sus actividades."
+    )
+    sentimiento: Literal["positivo", "neutro", "negativo"] = Field(
+        description="Sentimiento o tono general hacia la institución, el elenco o la obra."
+    )
     elenco_o_cuerpo: Literal[
         "Ballet Nacional (BNS)",
         "Orquesta Sinfónica (OSSODRE)",
@@ -27,7 +33,7 @@ class AnalisisMencionSodre(BaseModel):
         "Escuelas de Formación (ENFAS)",
         "Institucional / Autoridades / Varios",
         "Ninguno"
-    ] = Field(description="Elenco o área específica protagonista.")
+    ] = Field(description="Elenco, cuerpo artístico o área específica protagonista.")
     tema_principal: Literal[
         "Crítica artística o reseña",
         "Cartelera y venta de entradas",
@@ -35,10 +41,17 @@ class AnalisisMencionSodre(BaseModel):
         "Novedades institucionales o autoridades",
         "Entrevista a artistas o autoridades",
         "Otro"
-    ] = Field(description="Eje temático principal.")
-    obra_mencionada: Optional[str] = Field(default=None, description="Nombre de la obra si aplica.")
+    ] = Field(description="Eje temático principal de la publicación.")
+    obra_mencionada: Optional[str] = Field(
+        default=None,
+        description="Nombre específico de la obra o concierto si aplica (ej. Coppélia, El Cascanueces). Si no aplica, null."
+    )
 
-# Palabras clave Nivel 1 (Directas)
+# ==========================================
+# 2. TAXONOMÍA Y PALABRAS CLAVE
+# ==========================================
+
+# Nivel 1: Marca institucional directa y elencos (Match directo)
 KEYWORDS_L1 = [
     r"\bsodre\b", r"servicio oficial de difusión, representaciones y espectáculos",
     r"auditorio nacional adela reta", r"auditorio adela reta",
@@ -53,7 +66,7 @@ KEYWORDS_L1 = [
     r"consejo directivo del sodre", r"consejo directivo sodre"
 ]
 
-# Palabras clave Nivel 2 (Requieren contexto)
+# Nivel 2: Salas ambiguas, autoridades y MEC (Requieren contexto)
 KEYWORDS_L2 = [
     r"adela reta", r"sala eduardo fabini", r"sala fabini",
     r"sala hugo balzo", r"sala balzo", r"nelly goitiño",
@@ -64,11 +77,12 @@ KEYWORDS_L2 = [
     r"carlos varela ubal", r"dirección nacional de cultura", r"maría eugenia vidal"
 ]
 
-# Cartelera (Requieren ancla institucional)
+# Nivel 3: Títulos de espectáculos y cartelera (Requieren anclas institucionales)
 KEYWORDS_L3 = [
     r"coppélia", r"coppelia", r"el cascanueces", r"conciertos en familia", r"homero francesch"
 ]
 
+# Contexto cultural asociado
 KEYWORDS_CONTEXTO = [
     r"\buruguay\b", r"\bmontevideo\b", r"\bcultura\b", r"\bballet\b",
     r"\bdanza\b", r"\bópera\b", r"\bopera\b", r"\borquesta\b",
@@ -77,30 +91,89 @@ KEYWORDS_CONTEXTO = [
     r"\btemporada\b", r"\babono\b", r"\bestreno\b", r"\bfunción\b", r"\bfuncion\b"
 ]
 
+# Entidades de medios, programas y marcas periodísticas
+KEYWORDS_MEDIOS = [
+    r"medios públicos", r"secan", r"servicio de comunicación audiovisual nacional",
+    r"canal 5", r"canal cinco", r"tnu", r"televisión nacional uruguay",
+    r"canal 5 noticias", r"info tnu",
+    r"radio uruguay", r"cx26", r"rnu", r"uruguay 1050",
+    r"babel", r"radio babel", r"babel fm", r"97\.1 fm",
+    r"clásica 650", r"radio clásica", r"cx6",
+    r"radio cultura", r"cultura 1290", r"emisora del sur", r"cx38",
+    r"telenoche", r"canal 4", r"monte carlo tv",
+    r"subrayado", r"canal 10", r"saeta",
+    r"telemundo", r"canal 12", r"teledoce", r"la tele",
+    r"tv ciudad", r"tvciudad",
+    r"vtv uruguay", r"\bvtv\b", r"cardinal tv", r"nuevo siglo", r"\bnstv\b",
+    r"en perspectiva", r"radiomundo", r"cx32", r"emiliano cotelo",
+    r"radio monte carlo", r"radio montecarlo", r"cx20",
+    r"radio sarandí", r"sarandí 690", r"cx8",
+    r"el espectador", r"el espectador 810", r"cx14",
+    r"del sol fm", r"\bdelsol\b",
+    r"azul fm", r"101\.9 fm",
+    r"\bm24\b", r"m24 radio",
+    r"cx36", r"radio centenario",
+    r"970 universal", r"radio universal", r"cx22",
+    r"radio carve", r"carve 850", r"cx16",
+    r"radio oriental", r"oriental 770", r"cx12",
+    r"océano fm", r"radio cero", r"radio nuevo tiempo",
+    r"la república", r"diario la república", r"lr21", r"la red 21",
+    r"el popular", r"diario la juventud", r"crónicas económicas",
+    r"el telégrafo", r"diario el pueblo", r"\bagesor\b",
+    r"maldonado noticias", r"san josé ahora"
+]
+
+# Directorio de feeds RSS activos
 FEEDS = {
     "La Diaria": "https://ladiaria.com.uy/feed/",
     "El País": "https://www.elpais.com.uy/rss",
     "Montevideo Portal": "https://www.montevideo.com.uy/anxml.aspx?58",
     "El Observador": "https://www.elobservador.com.uy/rss/cultura.xml",
-    "Subrayado": "https://www.subrayado.com.uy/rss/cultura.xml"
+    "Subrayado (Canal 10)": "https://www.subrayado.com.uy/rss/cultura.xml",
+    "Telemundo (Canal 12)": "https://www.teledoce.com/feed/",
+    "Telenoche (Canal 4)": "https://www.telenoche.com.uy/rss/cultura.xml",
+    "Portal 180": "https://www.180.com.uy/feed.php",
+    "Brecha": "https://brecha.com.uy/feed/",
+    "Caras y Caretas": "https://www.carasycaretas.com.uy/rss/cultura.xml",
+    "Búsqueda": "https://www.busqueda.com.uy/rss/cultura.xml",
+    "La Mañana": "https://www.lamanana.uy/feed/",
+    "Semanario Voces": "https://voces.com.uy/feed/",
+    "Medios Públicos (Canal 5 / Radios)": "https://mediospublicos.uy/feed/",
+    "En Perspectiva (Radiomundo)": "https://enperspectiva.uy/feed/",
+    "M24 Radio": "https://www.m24.com.uy/feed/",
+    "Radio Universal 970": "https://universal970.com.uy/feed/",
+    "El Telégrafo (Paysandú)": "https://www.eltelegrafo.com/feed/",
+    "Maldonado Noticias": "https://maldonadonoticias.com/beta/feed/",
+    "San José Ahora": "https://sanjoseahora.com.uy/feed/"
 }
 
+# ==========================================
+# 3. FUNCIONES DE EVALUACIÓN Y LLM
+# ==========================================
 def matches_any(text: str, patterns: list) -> list:
-    return [p.replace(r"\b", "") for p in patterns if re.search(p, text, re.IGNORECASE)]
+    return [p.replace(r"\b", "").replace(r"\.", ".") for p in patterns if re.search(p, text, re.IGNORECASE)]
 
 def evaluar_mencion(titulo: str, cuerpo: str):
     texto = f"{titulo} {cuerpo}".lower()
+
+    # Nivel 1: Coincidencia directa
     m1 = matches_any(texto, KEYWORDS_L1)
     if m1:
         return True, "Nivel 1 (Directo)", m1
+
+    # Nivel 2: Institucional/Autoridades cruzado con contexto o entidades de medios
     m2 = matches_any(texto, KEYWORDS_L2)
     ctx = matches_any(texto, KEYWORDS_CONTEXTO)
-    if m2 and ctx:
-        return True, "Nivel 2 (Institucional + Contexto)", m2 + ctx
+    medios = matches_any(texto, KEYWORDS_MEDIOS)
+    if m2 and (ctx or medios):
+        return True, "Nivel 2 (Institucional + Contexto/Medio)", m2 + ctx + medios
+
+    # Nivel 3: Obra de cartelera vinculada al Sodre o salas
     m3 = matches_any(texto, KEYWORDS_L3)
-    anclas = matches_any(texto, [r"\bsodre\b", r"\bbns\b", r"\bossodre\b", r"\btickantel\b", r"adela reta"])
+    anclas = matches_any(texto, [r"\bsodre\b", r"\bbns\b", r"\bossodre\b", r"\btickantel\b", r"adela reta", r"sala fabini"])
     if m3 and anclas:
         return True, "Nivel 3 (Cartelera)", m3 + anclas
+
     return False, None, []
 
 def obtener_enlaces_existentes():
@@ -124,9 +197,12 @@ def clasificar_con_gemini(client: genai.Client, titulo: str, texto: str) -> Opti
         )
         return AnalisisMencionSodre.model_validate_json(response.text)
     except Exception as e:
-        print(f"Error llamando a Gemini: {e}")
+        print(f"Error al analizar con Gemini: {e}")
         return None
 
+# ==========================================
+# 4. EJECUCIÓN PRINCIPAL
+# ==========================================
 def main():
     os.makedirs("data", exist_ok=True)
     enlaces_previos = obtener_enlaces_existentes()
@@ -142,7 +218,7 @@ def main():
     escribir_cabecera = not os.path.exists(CSV_PATH) or os.path.getsize(CSV_PATH) == 0
 
     for medio, url in FEEDS.items():
-        print(f"Consultando {medio}...")
+        print(f"Escaneando feed: {medio}...")
         try:
             feed = feedparser.parse(url)
             for entry in feed.entries:
@@ -164,9 +240,9 @@ def main():
 
                 es_relevante, nivel, matches = evaluar_mencion(titulo, resumen)
                 if es_relevante:
-                    print(f"  -> Nueva mención detectada: {titulo[:60]}")
+                    print(f"  -> Coincidencia: '{titulo[:50]}...' Analizando con Gemini...")
                     analisis = clasificar_con_gemini(client, titulo, resumen)
-                    
+
                     fila = {
                         "fecha": fecha.strftime("%Y-%m-%d %H:%M") if fecha else "S/F",
                         "medio": medio,
@@ -192,9 +268,9 @@ def main():
                 writer.writeheader()
             for r in nuevas_filas:
                 writer.writerow(r)
-        print(f"\nSe agregaron {len(nuevas_filas)} nuevas menciones a {CSV_PATH}.")
+        print(f"\nÉxito: Se indexaron y guardaron {len(nuevas_filas)} menciones en {CSV_PATH}.")
     else:
-        print("\nNo se detectaron noticias nuevas en esta corrida.")
+        print("\nNo se encontraron noticias nuevas en esta ejecución.")
 
 if __name__ == "__main__":
     main()
