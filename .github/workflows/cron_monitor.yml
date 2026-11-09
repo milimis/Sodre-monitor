@@ -14,6 +14,7 @@ on:
           - 'monitoreo_diario'
           - 'procesar_excel_2025'
           - 'historico_2026'
+          - 'scraper_papa'
 
 permissions:
   contents: write
@@ -40,15 +41,19 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TAREA: ${{ github.event.inputs.script_a_ejecutar }}
         run: |
-          if [ "$TAREA" = "procesar_excel_2025" ]; then
+         if [ "$TAREA" = "procesar_excel_2025" ]; then
             echo "Procesando Excel de 2025..."
             python procesar_excel_2025.py
           elif [ "$TAREA" = "historico_2026" ]; then
             echo "Recuperando historico 2026..."
             python historico_2026.py
+          elif [ "$TAREA" = "scraper_papa" ]; then
+            echo "Ejecutando scraper de la visita papal..."
+            python scraper_papa.py
           else
             echo "Ejecutando monitoreo diario..."
             python main.py
+            python scraper_papa.py
           fi
 
       - name: Guardar cambios en el repositorio
