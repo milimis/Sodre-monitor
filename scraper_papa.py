@@ -1,39 +1,39 @@
 
 """
-SODRE - MONITOR DE REPERCUSIÓN INTERNACIONAL
+SODRE - MONITOREO INTERNACIONAL
 Visita del papa León XIV a Uruguay - Noviembre 2026
 
-Fuentes: Google News RSS
-Idiomas: español, inglés, italiano y portugués
+Relevamiento específico:
+1. Papa León XIV y Yamandú Orsi
+2. Papa León XIV y Uruguay
+3. Papa León XIV y Sodre / elencos
 
-Compatible con el CSV original.
-No verifica automáticamente fotografías, videos ni sentimientos.
+No incorpora datos del scraper anterior.
 """
 
 import csv
+import re
 import html
 import os
-import re
-import shutil
 import tempfile
 import unicodedata
 
-from datetime import datetime, timezone
 from pathlib import Path
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import feedparser
 import requests
 
 
-# ==========================================================
-# 1. CONFIGURACIÓN GENERAL
-# ==========================================================
+# ==================================================
+# CONFIGURACIÓN
+# ==================================================
 
-ARCHIVO = Path("data/menciones_papa_2026.csv")
+SALIDA = Path("data/menciones_papa_filtradas_2026.csv")
 
-FECHA_DESDE = "2026-11-05"
-FECHA_HASTA = "2026-11-11"  # Exclusiva: incluye hasta el día 10
+DESDE = "2026-11-05"
+HASTA = "2026-11-11"
 
 IDIOMAS = {
     "es": ("es-419", "UY", "UY:es-419"),
@@ -44,33 +44,33 @@ IDIOMAS = {
 
 BUSQUEDAS = {
     "es": [
-        '"León XIV" Uruguay',
-        '"León XIV" Orsi',
-        '"León XIV" Sodre',
-        '"papa" "coro" "Montevideo"',
-        '"papa" "orquesta" Uruguay',
-        '"visita papal" Uruguay',
+        '"León XIV" "Orsi"',
+        '"León XIV" "Uruguay"',
+        '"León XIV" "Montevideo"',
+        '"papa" "Sodre"',
+        '"papa" "Orquesta Juvenil Nacional"',
+        '"papa" "Coro Nacional" "Uruguay"',
     ],
     "en": [
-        '"Pope Leo XIV" Uruguay',
-        '"Pope Leo XIV" Orsi',
-        '"Pope Leo XIV" choir Uruguay',
-        '"Pope Leo XIV" orchestra Uruguay',
-        '"Sodre" Pope Uruguay',
+        '"Pope Leo XIV" "Orsi"',
+        '"Pope Leo XIV" "Uruguay"',
+        '"Pope Leo XIV" "Montevideo"',
+        '"Pope Leo XIV" "Sodre"',
+        '"Pope Leo XIV" "choir" "Uruguay"',
     ],
     "it": [
-        '"Leone XIV" Uruguay',
-        '"Leone XIV" Montevideo',
-        '"Leone XIV" coro Uruguay',
+        '"Leone XIV" "Uruguay"',
+        '"Leone XIV" "Orsi"',
+        '"Leone XIV" "Montevideo"',
     ],
     "pt": [
-        '"Leão XIV" Uruguai',
-        '"Leão XIV" Orsi',
-        '"Leão XIV" coral Uruguai',
+        '"Leão XIV" "Uruguai"',
+        '"Leão XIV" "Orsi"',
+        '"Leão XIV" "Montevidéu"',
     ],
 }
 
-COLUMNAS_ORIGINALES = [
+COLUMNAS = [
     "fecha",
     "medio",
     "titulo",
@@ -79,29 +79,22 @@ COLUMNAS_ORIGINALES = [
     "elenco_o_cuerpo",
     "sentimiento",
     "tema_principal",
-]
-
-COLUMNAS_NUEVAS = [
     "fecha_publicacion",
-    "fecha_relevamiento",
     "idioma_busqueda",
-    "consulta",
     "tipo_mencion",
     "aparicion_visual",
     "evidencia_visual",
     "estado_revision",
-    "origen_contenido",
 ]
 
 
-# ==========================================================
-# 2. FUNCIONES DE LIMPIEZA
-# ==========================================================
+# ==================================================
+# LIMPIEZA DE TEXTO
+# ==================================================
 
 def normalizar(texto):
     texto = unicodedata.normalize(
-        "NFKD",
-        str(texto or "")
+        "NFKD", str(texto or "")
     )
     texto = "".join(
         c for c in texto
@@ -110,161 +103,103 @@ def normalizar(texto):
     return texto.lower().strip()
 
 
-def limpiar_html(texto):
-    texto = re.sub(
-        r"<[^>]+>",
-        " ",
-        str(texto or "")
-    )
-    return " ".join(
-        html.unescape(texto).split()
-    )
+def limpiar(texto):
+    texto = re.sub(r"<[^>]+>", " ", str(texto or ""))
+    return " ".join(html.unescape(texto).split())
 
 
-# ==========================================================
-# 3. DETECCIÓN DE ELENCOS
-# ==========================================================
+# ==================================================
+# FILTRO ESTRICTO DE RELEVANCIA
+# ==================================================
 
-PATRONES_ELENCOS = {
-    "Coro Nacional Juvenil": [
-        "coro nacional juvenil",
-        "national youth choir",
-    ],
-    "Coro Nacional de Niños": [
-        "coro nacional de ninos",
-        "national children's choir",
-    ],
-    "Orquesta Juvenil Nacional": [
-        "orquesta juvenil nacional",
-        "national youth orchestra of uruguay",
-        "uruguayan national youth orchestra",
-    ],
-    "Orquesta Sinfónica Nacional": [
-        "orquesta sinfonica nacional",
-        "ossodre",
-    ],
-    "Coro Nacional": [
-        "coro nacional",
-        "national choir of uruguay",
-    ],
+PAPA = (
+    r"\bpapa\b|\bpope\b|\bpontifice\b|"
+    r"\bleon xiv\b|\bleo xiv\b|"
+    r"\bleone xiv\b|\bleao xiv\b|"
+    r"\bleon 14\b|\bleo 14\b"
+)
+
+URUGUAY = (
+    r"\buruguay\b|\buruguai\b|"
+    r"\bmontevideo\b|\bmontevideu\b|"
+    r"\borsi\b|\bcarrasco\b"
+)
+
+SODRE = r"\bsodre\b|\bossodre\b"
+
+ELENCOS = {
+    "Coro Nacional": r"\bcoro nacional\b",
+    "Coro Nacional Juvenil": r"\bcoro nacional juvenil\b",
+    "Coro Nacional de Niños": r"\bcoro nacional de ninos\b",
+    "Orquesta Juvenil Nacional":
+        r"\borquesta juvenil nacional\b",
+    "Orquesta Sinfónica Nacional":
+        r"\borquesta sinfonica nacional\b|\bossodre\b",
 }
 
 
-def detectar_elencos(texto):
-    texto = normalizar(texto)
-    encontrados = []
-
-    for nombre, variantes in PATRONES_ELENCOS.items():
-        if any(v in texto for v in variantes):
-            encontrados.append(nombre)
-
-    # Evitar contar el Coro Nacional cuando solamente
-    # aparece una mención al Coro Nacional Juvenil
-    # o al Coro Nacional de Niños.
-    if "Coro Nacional" in encontrados:
-        texto_sin_subgrupos = texto.replace(
-            "coro nacional juvenil", ""
-        ).replace(
-            "coro nacional de ninos", ""
-        )
-
-        if (
-            "coro nacional" not in texto_sin_subgrupos
-            and "national choir of uruguay" not in texto
-        ):
-            encontrados.remove("Coro Nacional")
-
-    return encontrados
-
-
-# ==========================================================
-# 4. CLASIFICACIÓN DE NOTICIAS
-# ==========================================================
-
 def clasificar(titulo, resumen):
-    texto = normalizar(
-        f"{titulo} {resumen}"
-    )
+    t = normalizar(titulo)
+    r = normalizar(resumen)
+    texto = t + " " + r
 
-    menciona_sodre = bool(
-        re.search(
-            r"\bsodre\b|\bossodre\b",
-            texto
+    # Primero: el título tiene que tratar sobre el papa.
+    if not re.search(PAPA, t):
+        return None
+
+    # Segundo: relación explícita en el título.
+    relacionado = (
+        re.search(URUGUAY, t)
+        or re.search(SODRE, t)
+        or any(
+            re.search(patron, t)
+            for patron in ELENCOS.values()
         )
     )
 
-    elencos = detectar_elencos(texto)
+    if not relacionado:
+        return None
 
-    menciona_papa = bool(
-        re.search(
-            r"\bpapa\b|\bpope\b|\bpontifice\b|"
-            r"\bleon xiv\b|\bleo xiv\b|"
-            r"\bleone xiv\b|\bleao xiv\b",
-            texto
-        )
-    )
+    detectados = [
+        nombre
+        for nombre, patron in ELENCOS.items()
+        if re.search(patron, texto)
+    ]
 
-    menciona_uruguay = bool(
-        re.search(
-            r"\buruguay\b|\buruguai\b|"
-            r"\bmontevideo\b|\borsi\b",
-            texto
-        )
-    )
+    if "Coro Nacional Juvenil" in detectados:
+        if "Coro Nacional" in detectados:
+            detectados.remove("Coro Nacional")
 
-    # La noticia debe estar relacionada con la visita.
-    if not (menciona_papa and menciona_uruguay):
-        return None, []
+    if "Coro Nacional de Niños" in detectados:
+        if "Coro Nacional" in detectados:
+            detectados.remove("Coro Nacional")
 
-    if menciona_sodre:
-        return (
-            "A - Mención Sodre (preliminar)",
-            elencos
-        )
+    if re.search(SODRE, texto):
+        categoria = "A - Sodre (preliminar)"
 
-    if elencos:
-        return (
-            "A - Mención elenco (preliminar)",
-            elencos
-        )
+    elif detectados:
+        categoria = "B - Elencos (preliminar)"
 
-    return (
-        "D - Cobertura general",
-        []
-    )
+    elif re.search(r"\borsi\b", t):
+        categoria = "C - Papa y Orsi"
+
+    else:
+        categoria = "D - Papa en Uruguay"
+
+    return categoria, detectados
 
 
-# ==========================================================
-# 5. FECHAS DE PUBLICACIÓN
-# ==========================================================
+# ==================================================
+# CONSULTAS RSS
+# ==================================================
 
-def fecha_publicacion(entry):
-    fecha = (
-        entry.get("published_parsed")
-        or entry.get("updated_parsed")
-    )
-
-    if not fecha:
-        return ""
-
-    return datetime(
-        *fecha[:6],
-        tzinfo=timezone.utc
-    ).strftime("%Y-%m-%d %H:%M")
-
-
-# ==========================================================
-# 6. CONSULTAS A GOOGLE NEWS
-# ==========================================================
-
-def url_google_news(consulta, idioma):
+def crear_url(consulta, idioma):
     hl, gl, ceid = IDIOMAS[idioma]
 
     parametros = {
         "q": (
             f"{consulta} "
-            f"after:{FECHA_DESDE} "
-            f"before:{FECHA_HASTA}"
+            f"after:{DESDE} before:{HASTA}"
         ),
         "hl": hl,
         "gl": gl,
@@ -277,35 +212,28 @@ def url_google_news(consulta, idioma):
     )
 
 
-def descargar_rss(url):
-    respuesta = requests.get(
-        url,
-        timeout=25,
-        headers={
-            "User-Agent": "SodreMonitor/1.0"
-        }
+def fecha_noticia(entry):
+    estructura = (
+        entry.get("published_parsed")
+        or entry.get("updated_parsed")
     )
 
-    respuesta.raise_for_status()
+    if not estructura:
+        return ""
 
-    feed = feedparser.parse(
-        respuesta.content
-    )
-
-    if feed.get("bozo") and not feed.entries:
-        raise ValueError(
-            "Google News devolvió un RSS inválido"
-        )
-
-    return feed.entries
+    return datetime(
+        *estructura[:6],
+        tzinfo=timezone.utc
+    ).strftime("%Y-%m-%d %H:%M")
 
 
-# ==========================================================
-# 7. RECOLECCIÓN DE NOTICIAS
-# ==========================================================
+# ==================================================
+# RECOLECCIÓN
+# ==================================================
 
-def recopilar_noticias():
-    resultados = []
+def buscar_noticias():
+    registros = []
+    enlaces = set()
 
     ahora = datetime.now(
         timezone.utc
@@ -314,31 +242,38 @@ def recopilar_noticias():
     for idioma, consultas in BUSQUEDAS.items():
 
         for consulta in consultas:
-            print(
-                f"Buscando [{idioma}]: {consulta}"
-            )
-
-            url = url_google_news(
-                consulta,
-                idioma
-            )
+            print(f"Buscando: {consulta}")
 
             try:
-                entradas = descargar_rss(url)
+                respuesta = requests.get(
+                    crear_url(consulta, idioma),
+                    timeout=25,
+                    headers={
+                        "User-Agent": "SodreMonitor/1.0"
+                    }
+                )
+
+                respuesta.raise_for_status()
+
+                feed = feedparser.parse(
+                    respuesta.content
+                )
+
+                if feed.get("bozo") and not feed.entries:
+                    print("RSS inválido. Se omite.")
+                    continue
 
             except Exception as error:
-                print(
-                    f"Error consultando RSS: {error}"
-                )
+                print(f"Error RSS: {error}")
                 continue
 
-            for entry in entradas:
+            for entry in feed.entries:
 
-                titulo = limpiar_html(
+                titulo = limpiar(
                     entry.get("title", "")
                 )
 
-                resumen = limpiar_html(
+                resumen = limpiar(
                     entry.get("summary", "")
                 )
 
@@ -347,181 +282,73 @@ def recopilar_noticias():
                 if not titulo or not enlace:
                     continue
 
-                fecha_original = fecha_publicacion(
-                    entry
-                )
+                fecha = fecha_noticia(entry)
 
-                # Excluir noticias publicadas fuera
-                # del período definido.
-                if fecha_original:
-                    dia = fecha_original[:10]
-
-                    if not (
-                        FECHA_DESDE <= dia < FECHA_HASTA
-                    ):
-                        continue
-
-                categoria, elencos = clasificar(
-                    titulo,
-                    resumen
-                )
-
-                if categoria is None:
+                if fecha and not (
+                    DESDE <= fecha[:10] < HASTA
+                ):
                     continue
 
-                fuente = entry.get("source", {})
-
-                medio = fuente.get(
-                    "title",
-                    "No identificado"
+                clasificacion = clasificar(
+                    titulo, resumen
                 )
 
-                registro = {
+                if clasificacion is None:
+                    continue
+
+                clave = enlace.strip().rstrip("/")
+
+                if clave in enlaces:
+                    continue
+
+                enlaces.add(clave)
+
+                categoria, elencos = clasificacion
+
+                medio = entry.get(
+                    "source", {}
+                ).get(
+                    "title", "No identificado"
+                )
+
+                registros.append({
                     "fecha": ahora,
                     "medio": medio,
                     "titulo": titulo,
                     "enlace": enlace,
                     "nivel_coincidencia": categoria,
-                    "elenco_o_cuerpo": (
-                        ", ".join(elencos)
-                        if elencos
-                        else "No identificado"
-                    ),
+                    "elenco_o_cuerpo": ", ".join(elencos),
                     "sentimiento": "Sin evaluar",
                     "tema_principal": "Visita Papal",
-                    "fecha_publicacion": fecha_original,
-                    "fecha_relevamiento": ahora,
+                    "fecha_publicacion": fecha,
                     "idioma_busqueda": idioma,
-                    "consulta": consulta,
                     "tipo_mencion": categoria,
                     "aparicion_visual": "Sin verificar",
                     "evidencia_visual": "",
                     "estado_revision": "Pendiente",
-                    "origen_contenido": "Sin verificar",
-                }
+                })
 
-                resultados.append(registro)
-
-    print(
-        f"Registros encontrados: {len(resultados)}"
-    )
-
-    return resultados
+    return registros
 
 
-# ==========================================================
-# 8. LEER HISTÓRICO
-# ==========================================================
+# ==================================================
+# GUARDADO INDEPENDIENTE
+# ==================================================
 
-def leer_historico():
+def guardar(registros):
 
-    if not ARCHIVO.exists():
-        return [], COLUMNAS_ORIGINALES + COLUMNAS_NUEVAS
+    if not registros:
+        print(
+            "No se encontraron noticias. "
+            "No se modificará el CSV."
+        )
+        return
 
-    with ARCHIVO.open(
-        "r",
-        encoding="utf-8-sig",
-        newline=""
-    ) as archivo:
-
-        lector = csv.DictReader(archivo)
-
-        if not lector.fieldnames:
-            raise ValueError(
-                "El CSV existente no tiene encabezados"
-            )
-
-        if "enlace" not in lector.fieldnames:
-            raise ValueError(
-                "El CSV no tiene columna enlace"
-            )
-
-        columnas = list(lector.fieldnames)
-        anteriores = list(lector)
-
-    for columna in (
-        COLUMNAS_ORIGINALES + COLUMNAS_NUEVAS
-    ):
-        if columna not in columnas:
-            columnas.append(columna)
-
-    return anteriores, columnas
-
-
-# ==========================================================
-# 9. EVITAR DUPLICADOS
-# ==========================================================
-
-def clave_noticia(registro):
-    enlace = str(
-        registro.get("enlace", "")
-    ).strip().rstrip("/")
-
-    if enlace:
-        return ("url", enlace)
-
-    titulo = normalizar(
-        registro.get("titulo", "")
-    )
-
-    medio = normalizar(
-        registro.get("medio", "")
-    )
-
-    return ("titulo", titulo, medio)
-
-
-def acumular(anteriores, nuevas):
-    resultado = list(anteriores)
-
-    claves = {
-        clave_noticia(fila)
-        for fila in anteriores
-    }
-
-    agregadas = 0
-
-    for noticia in nuevas:
-        clave = clave_noticia(noticia)
-
-        if clave in claves:
-            continue
-
-        claves.add(clave)
-        resultado.append(noticia)
-        agregadas += 1
-
-    return resultado, agregadas
-
-
-# ==========================================================
-# 10. GUARDADO SEGURO
-# ==========================================================
-
-def guardar_csv(registros, columnas):
-    ARCHIVO.parent.mkdir(
+    SALIDA.parent.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    # Respaldar el archivo existente.
-    if ARCHIVO.exists():
-        sello = datetime.now(
-            timezone.utc
-        ).strftime("%Y%m%d_%H%M%S_%f")
-
-        respaldo = ARCHIVO.with_name(
-            f"{ARCHIVO.stem}_backup_{sello}.csv"
-        )
-
-        shutil.copy2(
-            ARCHIVO,
-            respaldo
-        )
-
-        print(f"Respaldo creado: {respaldo}")
-
-    # Escribir primero en un archivo temporal.
     temporal = None
 
     try:
@@ -530,7 +357,7 @@ def guardar_csv(registros, columnas):
             encoding="utf-8-sig",
             newline="",
             delete=False,
-            dir=ARCHIVO.parent,
+            dir=SALIDA.parent,
             suffix=".tmp"
         ) as archivo:
 
@@ -538,63 +365,35 @@ def guardar_csv(registros, columnas):
 
             escritor = csv.DictWriter(
                 archivo,
-                fieldnames=columnas,
-                extrasaction="ignore"
+                fieldnames=COLUMNAS
             )
 
             escritor.writeheader()
             escritor.writerows(registros)
 
-        # Reemplazar únicamente después
-        # de escribir correctamente.
-        os.replace(
-            temporal,
-            ARCHIVO
-        )
+        os.replace(temporal, SALIDA)
 
     finally:
         if temporal and os.path.exists(temporal):
             os.remove(temporal)
 
+    print("\nRELEVAMIENTO FINALIZADO")
+    print(f"Noticias filtradas: {len(registros)}")
+    print(f"Archivo: {SALIDA}")
 
-# ==========================================================
-# 11. EJECUCIÓN PRINCIPAL
-# ==========================================================
-
-def main():
-
-    print("\nMONITOR INTERNACIONAL SODRE")
-    print("Visita del papa León XIV\n")
-
-    anteriores, columnas = leer_historico()
-
-    print(
-        f"Registros anteriores: {len(anteriores)}"
-    )
-
-    nuevas = recopilar_noticias()
-
-    finales, agregadas = acumular(
-        anteriores,
-        nuevas
-    )
-
-    if agregadas == 0:
-        print(
-            "\nNo hay noticias nuevas para guardar."
+    for categoria in sorted(
+        set(r["tipo_mencion"] for r in registros)
+    ):
+        cantidad = sum(
+            r["tipo_mencion"] == categoria
+            for r in registros
         )
-        return
+        print(f"{categoria}: {cantidad}")
 
-    guardar_csv(
-        finales,
-        columnas
-    )
 
-    print("\nMONITOREO FINALIZADO")
-    print(f"Noticias agregadas: {agregadas}")
-    print(f"Total acumulado: {len(finales)}")
-    print(f"Archivo: {ARCHIVO}")
-
+# ==================================================
+# EJECUCIÓN
+# ==================================================
 
 if __name__ == "__main__":
-    main()
+    guardar(buscar_noticias())
