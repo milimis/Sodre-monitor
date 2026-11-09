@@ -1,27 +1,34 @@
+
 name: Monitoreo Menciones Sodre
 
 on:
   schedule:
-    - cron: '0 12,0 * * *'
+    - cron: '0 0,12 * * *'
+
   workflow_dispatch:
     inputs:
       script_a_ejecutar:
-        description: 'Selecciona la tarea a ejecutar:'
+        description: 'Selecciona la tarea'
         required: true
         default: 'monitoreo_diario'
         type: choice
         options:
-          - 'monitoreo_diario'
-          - 'procesar_excel_2025'
-          - 'historico_2026'
-          - 'scraper_papa'
+          - monitoreo_diario
+          - procesar_excel_2025
+          - historico_2026
+          - scraper_papa
 
 permissions:
   contents: write
 
+concurrency:
+  group: monitor-sodre
+  cancel-in-progress: false
+
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
+
     steps:
       - name: Clonar repositorio
         uses: actions/checkout@v4
@@ -33,37 +40,47 @@ jobs:
 
       - name: Instalar dependencias
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install pandas openpyxl feedparser requests beautifulsoup4 pydantic python-dateutil google-genai
 
-      - name: Ejecutar script seleccionado
+      - name: Ejecutar script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TAREA: ${{ github.event.inputs.script_a_ejecutar }}
+          TAREA: ${{ inputs.script_a_ejecutar }}
         run: |
-         if [ "$TAREA" = "procesar_excel_2025" ]; then
-            echo "Procesando Excel de 2025..."
+          if [ "$TAREA" = "procesar_excel_2025" ]; then
             python procesar_excel_2025.py
+
           elif [ "$TAREA" = "historico_2026" ]; then
-            echo "Recuperando historico 2026..."
             python historico_2026.py
+
           elif [ "$TAREA" = "scraper_papa" ]; then
-            echo "Ejecutando scraper de la visita papal..."
             python scraper_papa.py
+
           else
-            echo "Ejecutando monitoreo diario..."
             python main.py
-            python scraper_papa.py
           fi
 
-      - name: Guardar cambios en el repositorio
+      - name: Guardar resultados de prueba papal
+        if: ${{ inputs.script_a_ejecutar == 'scraper_papa' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: prueba-repercusion-papal
+          path: data/menciones_papa_2026.csv
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Guardar actualizaciones normales
+        if: ${{ inputs.script_a_ejecutar != 'scraper_papa' }}
         run: |
-          git config --global user.name "actions-user"
-          git config --global user.email "actions@github.com"
+          git config user.name "actions-user"
+          git config user.email "actions@github.com"
+
           git add data/
+
           if git diff --cached --quiet; then
-            echo "No hay menciones nuevas para guardar."
+            echo "No hay noticias nuevas."
           else
-            git commit -m "chore: actualizacion automatica menciones [skip ci]"
+            git commit -m "chore: actualizar menciones [skip ci]"
             git push origin main
           fi
