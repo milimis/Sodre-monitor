@@ -3,8 +3,9 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# Términos específicos para agencias internacionales, encuentro con Orsi y Sodre
+# Combinación optimizada de términos en español e inglés para agencias internacionales y Sodre
 QUERIES = [
+    # Español - Agencias y Visita
     "Papa Uruguay Reuters",
     "Papa Uruguay AP Associated Press",
     "Papa Uruguay AFP",
@@ -13,11 +14,19 @@ QUERIES = [
     "Sodre Papa Uruguay",
     "Orquesta Sodre Vaticano",
     "Coro Sodre León XIV",
-    "Pope Uruguay Sodre Choir",
+    # Inglés - Agencias Internacionales y Cobertura Global
+    "Pope Leo XIV Uruguay Reuters",
+    "Pope Leo XIV Uruguay AP",
+    "Pope Leo XIV Uruguay AFP",
+    "Pope Leo XIV Uruguay EFE",
+    "Pope Leo XIV President Orsi Uruguay",
+    "Sodre Orchestra Pope Leo XIV",
+    "National Choir Sodre Vatican Uruguay",
+    "Uruguay Pope visit choir orchestra",
     "Vatican News Uruguay Sodre"
 ]
 
-def buscar_menciones_internacionales():
+def buscar_menciones_globales():
     menciones = []
     for q in QUERIES:
         rss_url = f"https://news.google.com/rss/search?q={q.replace(' ', '+')}&hl=es-AR&gl=AR&ceid=AR:es"
@@ -25,14 +34,17 @@ def buscar_menciones_internacionales():
         
         for entry in feed.entries:
             titulo_lower = entry.title.lower()
-            # Filtramos para asegurar relevancia institucional o internacional
-            if any(term in titulo_lower for term in ['papa', 'león', 'leon', 'vaticano', 'orsi', 'sodre', 'efe', 'reuters', 'ap', 'afp', 'choir', 'orchestra']):
+            # Filtro inteligente para capturar menciones papales, presidenciales o artísticas del Sodre
+            if any(term in titulo_lower for term in [
+                'papa', 'leo', 'león', 'leon', 'vaticano', 'vatican', 'orsi', 
+                'sodre', 'choir', 'orchestra', 'orquesta', 'coro', 'efe', 'reuters', 'ap', 'afp'
+            ]):
                 menciones.append({
                     "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "medio": entry.get("source", {}).get("title", "Agencia Internacional / Prensa"),
+                    "medio": entry.get("source", {}).get("title", "Agencia Global / Prensa"),
                     "titulo": entry.title,
                     "enlace": entry.link,
-                    "nivel_coincidencia": "Agencia / Internacional",
+                    "nivel_coincidencia": "Global / Internacional",
                     "elenco_o_cuerpo": "Sodre / Protocolar",
                     "sentimiento": "Positivo",
                     "tema_principal": "Visita Papal y Sodre"
@@ -52,11 +64,11 @@ if __name__ == "__main__":
     else:
         df_existente = pd.DataFrame(columns=["fecha", "medio", "titulo", "enlace", "nivel_coincidencia", "elenco_o_cuerpo", "sentimiento", "tema_principal"])
         
-    df_nuevos = buscar_menciones_internacionales()
+    df_nuevos = buscar_menciones_globales()
     
     if not df_nuevos.empty:
         df_final = pd.concat([df_existente, df_nuevos]).drop_duplicates(subset=["enlace"])
         df_final.to_csv(archivo_csv, index=False)
-        print(f"Éxito: {len(df_nuevos)} notas internacionales incorporadas.")
+        print(f"Éxito: {len(df_nuevos)} notas globales incorporadas.")
     else:
         print("Sin nuevas menciones en esta ejecución.")
